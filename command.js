@@ -20,6 +20,12 @@ var argv = require('optimist')
     .boolean('camelCaseProperties')
     .describe('camelCaseProperties', 'Generate properties with camel case (either this or underscores - can’t be both)')
     .default('camelCaseProperties', false)
+    .string('defaultPackageName')
+    .describe('defaultPackageName', 'If package name isn’t specified in protobuf json input, what package name should be used')
+    .default('defaultPackageName', 'Proto2TypeScript')
+    .string('output')
+    .describe('output', 'Base name for output files. eg. "mythings" will output "mythings.d.ts" (no enums) and "mythings.ts" (enums only). If left blank, output will go to std out, and not include enums.')
+    .default('output', '')
     .argv;
 // Import in typescript and commondjs style
 //var ProtoBuf = require("protobufjs");
@@ -70,7 +76,7 @@ function loadDustTemplate(name) {
     DustJS.loadSource(compiledTemplate);
 }
 // Generate the names for the model, the types, and the interfaces
-function generateNames(model, prefix, name) {
+function generateNames(model, prefix, includeEnums, name) {
     if (name === void 0) { name = ""; }
     model.fullPackageName = prefix + (name != "." ? name : "");
     // Copies the settings (I'm lazy)
@@ -85,7 +91,7 @@ function generateNames(model, prefix, name) {
     for (key in model.messages) {
         var message = model.messages[key];
         newDefinitions[message.name] = "Builder";
-        generateNames(message, model.fullPackageName, "." + (model.name ? model.name : ""));
+        generateNames(message, model.fullPackageName, includeEnums, "." + (model.name ? model.name : ""));
     }
     // Generate names for enums
     for (key in model.enums) {
@@ -119,20 +125,40 @@ loadDustTemplate("interface");
 loadDustTemplate("enum");
 loadDustTemplate("builder");
 // Load the json file
-var model = JSON.parse(fs.readFileSync(argv.file).toString());
+var inputFile = fs.readFileSync(argv.file).toString();
+var typescriptDefinitions = JSON.parse(inputFile); // not enums
+var typescript = JSON.parse(inputFile); // only enums
 // If a packagename isn't present, use a default package name
-if (!model.package) {
-    model.package = "Proto2TypeScript";
+if (!typescriptDefinitions.package) {
+    typescriptDefinitions.package = argv.defaultPackageName;
+    typescript.package = argv.defaultPackageName;
 }
 // Generates the names of the model
-generateNames(model, model.package);
+generateNames(typescriptDefinitions, typescriptDefinitions.package, false); // don't cinlude enums
+generateNames(typescript, typescriptDefinitions.package, true); // only inlude enums
 // Render the model
-DustJS.render("module", model, function (err, out) {
+DustJS.render("module", typescriptDefinitions, function (err, out) {
     if (err != null) {
         console.error(err);
         process.exit(1);
     }
     else {
-        console.log(out);
+        if (argv.output == "") {
+            console.log(out);
+        }
+        else {
+            fs.writeFileSync(argv.output + '.d.ts', out);
+        }
     }
 });
+if (argv.output != "") {
+    DustJS.render("module", typescript, function (err, out) {
+        if (err != null) {
+            console.error(err);
+            process.exit(1);
+        }
+        else {
+            fs.writeFileSync(argv.output + '.ts', out);
+        }
+    });
+}

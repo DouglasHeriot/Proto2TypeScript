@@ -4,25 +4,31 @@
 
 var argv = require('optimist')
 	.usage('Convert a ProtoBuf.js JSON description in TypeScript definitions.\nUsage: $0')
-    .demand('f')
-    .alias('f', 'file')
-    .describe('f', 'The JSON file')
-    .boolean('c')
-    .alias('c', 'camelCaseGetSet')
-    .describe('c', 'Generate getter and setters in camel case notation')
-    .default('c', true)
-    .boolean('u')
-    .alias('u', 'underscoreGetSet')
-    .describe('u', 'Generate getter and setters in underscore notation')
-    .default('u', false)
-    .boolean('p')
-    .alias('p', 'properties')
-    .describe('p', 'Generate properties')
-    .default('p', true)
+	.demand('f')
+	.alias('f', 'file')
+	.describe('f', 'The JSON file')
+	.boolean('c')
+	.alias('c', 'camelCaseGetSet')
+	.describe('c', 'Generate getter and setters in camel case notation')
+	.default('c', true)
+	.boolean('u')
+	.alias('u', 'underscoreGetSet')
+	.describe('u', 'Generate getter and setters in underscore notation')
+	.default('u', false)
+	.boolean('p')
+	.alias('p', 'properties')
+	.describe('p', 'Generate properties')
+	.default('p', true)
 	.boolean('camelCaseProperties')
-    .describe('camelCaseProperties', 'Generate properties with camel case (either this or underscores - can’t be both)')
-    .default('camelCaseProperties', false)
-    .argv;
+	.describe('camelCaseProperties', 'Generate properties with camel case (either this or underscores - can’t be both)')
+	.default('camelCaseProperties', false)
+	.string('defaultPackageName')
+	.describe('defaultPackageName', 'If package name isn’t specified in protobuf json input, what package name should be used')
+	.default('defaultPackageName', 'Proto2TypeScript')
+	.string('output')
+	.describe('output', 'Base name for output files. eg. "mythings" will output "mythings.d.ts" (no enums) and "mythings.ts" (enums only). If left blank, output will go to std out, and not include enums.')
+	.default('output', '')
+	.argv;
 
 
 // Import in typescript and commondjs style
@@ -88,7 +94,7 @@ function loadDustTemplate(name : string) : void {
 }
 
 // Generate the names for the model, the types, and the interfaces
-function generateNames (model : any, prefix : string, name : string = "") : void{
+function generateNames (model : any, prefix : string, includeEnums: boolean, name : string = "") : void{
 
 
 	model.fullPackageName = prefix+(name != "." ? name : "");
@@ -107,7 +113,7 @@ function generateNames (model : any, prefix : string, name : string = "") : void
 	for (key in model.messages) {
 		var message = model.messages[key];
 		newDefinitions[message.name] = "Builder";
-		generateNames(message,model.fullPackageName, "."+(model.name ? model.name : ""));
+		generateNames(message,model.fullPackageName, includeEnums, "."+(model.name ? model.name : ""));
 	}
 
 	// Generate names for enums
@@ -149,22 +155,41 @@ loadDustTemplate("enum");
 loadDustTemplate("builder");
 
 // Load the json file
-var	model = JSON.parse(fs.readFileSync(argv.file).toString());
+let inputFile = fs.readFileSync(argv.file).toString();
+let	typescriptDefinitions = JSON.parse(inputFile); // not enums
+let	typescript = JSON.parse(inputFile); // only enums
 
 // If a packagename isn't present, use a default package name
-if (!model.package) {
-	model.package = "Proto2TypeScript";
+if (!typescriptDefinitions.package) {
+	typescriptDefinitions.package = argv.defaultPackageName;
+	typescript.package = argv.defaultPackageName;
 }
 
 // Generates the names of the model
-generateNames(model, model.package);
+generateNames(typescriptDefinitions, typescriptDefinitions.package, false); // don't cinlude enums
+generateNames(typescript, typescriptDefinitions.package, true); // only inlude enums
 
 // Render the model
-DustJS.render("module", model, (err, out)=> {
+DustJS.render("module", typescriptDefinitions, (err, out)=> {
 	if (err != null) {
 		console.error(err);
 		process.exit(1);
 	} else {
-		console.log(out);
+		if(argv.output == "") {
+			console.log(out);
+		} else {
+			fs.writeFileSync(argv.output + '.d.ts', out);
+		}
 	}
 });
+
+if(argv.output != "") {
+	DustJS.render("module", typescript, (err, out)=> {
+		if (err != null) {
+			console.error(err);
+			process.exit(1);
+		} else {
+			fs.writeFileSync(argv.output + '.ts', out);
+		}
+	});
+}

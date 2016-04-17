@@ -28,6 +28,9 @@ declare module {fullPackageName} {
 	{>builder:./}	
 }
 {#messages}
-{>interface:./}{/messages}{#enums}
+{>interface:./}
+{/messages}
+
+{#enums}
 {>enum:./}
 {/enums}
